@@ -1,0 +1,64 @@
+# Test the Java LTS versions and latest version available
+
+name: Modified CI
+jobs:
+  Tests:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version:
+          - 11
+          - 17
+        os:
+          - macOS-latest
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |-
+          python -m pip install --upgrade pip
+          pip install inotify
+      - name: Run inotifywait
+        run: |-
+          python3 -c "
+          import inotify.adapters
+          import inotify.constants
+          import os
+          from datetime import datetime, timezone
+          with open('/home/runner/inotifywait-log-Tests (${{ matrix.java-version }}, ${{ matrix.os }}).csv', 'w') as log_file:
+            i = inotify.adapters.InotifyTree('/home/runner/work/tablesaw/tablesaw', inotify.constants.IN_CREATE | inotify.constants.IN_ACCESS)
+            for event in i.event_gen(yield_nones=False):
+              (_, type_names, path, filename) = event
+              now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z'
+              events = ','.join(type_names)
+              log_file.write(f'{now};{path};{filename};{events}\n')
+              log_file.flush()
+              os.fsync(log_file.fileno())
+          " &
+      - name: Checkout
+        uses: actions/checkout@v2
+      - run: touch optcd-3.txt
+      - name: Set up JDK $
+        uses: actions/setup-java@v1
+        with:
+          java-version: ${{ matrix.java-version }}
+      - run: touch optcd-4.txt
+      - name: Test with Maven
+        run: mvn test "-Dmaven.surefire.reports.skip=true" "-Dmaven.surefire.reportFormat=none"
+      - run: touch optcd-5.txt
+      - name: Upload inotifywait logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: inotifywait-Tests (${{ matrix.java-version }}, ${{ matrix.os }})
+          path: /home/runner/inotifywait-log-Tests (${{ matrix.java-version }}, ${{
+            matrix.os }}).csv
+    name: Tests (${{ matrix.java-version }}, ${{ matrix.os }})
+'on':
+  - push
+  - workflow_dispatch
